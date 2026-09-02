@@ -42,3 +42,32 @@ After loading the Quality Report:
 1. Click **Print / Save PDF** and verify all four sections appear.
 2. Save as PDF using the browser print dialog.
 3. Click **Download CSV** and verify snapshot, FPY, timing, and rework sections are present.
+
+
+## v0.1.2 Rework union test
+
+Create two different stock items:
+
+- Item A: currently in custom status `Rework`, with no Rework test
+- Item B: has a Rework test result, but is not currently in Rework status
+
+Expected:
+
+```text
+Status / Tracking Only: 1
+Rework Test Only:       1
+Found in Both:          0
+Unique Reworked:        2
+```
+
+If there are 5 total stock items, expected Rework Rate is 40.0%.
+
+## v0.1.2 Snapshot percentage test
+
+With 5 total stock items and one currently in Pass VI:
+
+```text
+Pass VI  1  20.0%
+```
+
+The Total row must show 100.0%.

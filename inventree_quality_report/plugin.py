@@ -26,7 +26,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.1"
+    VERSION = "0.1.2"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +78,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "title": "Quality Report",
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
-            "source": self.plugin_static_file("quality_report.js:renderQualityReportPanel"),
+            "source": self.plugin_static_file("quality_report_v012.js:renderQualityReportPanel"),
             "context": {
                 "part_id": part.pk,
                 "part_name": part.name,
@@ -431,6 +431,9 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "custom_status",
             "status_custom",
             "new_status_custom_key",
+            "status",
+            "new_status",
+            "stock_status",
         )
 
         candidates = [deltas[field] for field in candidate_fields if field in deltas]
@@ -468,12 +471,24 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
     ) -> dict[str, Any]:
         all_ids = {item.pk for item in stock_items}
 
-        tracking_ids = {
+        # Current custom Rework status is itself definitive evidence of rework.
+        # This also covers cases where historical status tracking was not recorded.
+        current_status_ids = set()
+        for item in stock_items:
+            resolved = cls._resolved_current_status(item, custom_map)
+            if resolved["bucket"] == "rework":
+                current_status_ids.add(item.pk)
+
+        tracking_history_ids = {
             entry.item_id
             for entry in tracking
             if entry.item_id in all_ids
             and cls._tracking_indicates_rework(entry, custom_map)
         }
+
+        # Treat current Rework status and historical Rework status tracking as one
+        # "status evidence" source for the report.
+        status_ids = current_status_ids | tracking_history_ids
 
         test_ids = {
             result.stock_item_id
@@ -481,23 +496,25 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             if result.key in cls.REWORK_TEST_KEYS
         }
 
-        both = tracking_ids & test_ids
-        tracking_only = tracking_ids - test_ids
-        test_only = test_ids - tracking_ids
-        unique = tracking_ids | test_ids
+        both = status_ids & test_ids
+        status_only = status_ids - test_ids
+        test_only = test_ids - status_ids
+        unique = status_ids | test_ids
         total = len(all_ids)
 
         return {
             "stock_items_evaluated": total,
             "unique_reworked": len(unique),
             "rate_percentage": (len(unique) / total * 100.0) if total else None,
-            "tracking_only": len(tracking_only),
+            "status_only": len(status_only),
             "test_only": len(test_only),
             "both": len(both),
-            "tracking_detected_total": len(tracking_ids),
+            "current_status_detected": len(current_status_ids),
+            "tracking_history_detected": len(tracking_history_ids),
+            "status_detected_total": len(status_ids),
             "test_detected_total": len(test_ids),
             "stock_items": sorted(unique),
-            "tracking_only_items": sorted(tracking_only),
+            "status_only_items": sorted(status_only),
             "test_only_items": sorted(test_only),
             "both_items": sorted(both),
         }

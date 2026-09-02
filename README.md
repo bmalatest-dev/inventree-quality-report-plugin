@@ -1,6 +1,6 @@
 # InvenTree Part Quality Report
 
-Version **0.1.1**
+Version **0.1.2**
 
 A lightweight on-demand quality report for a single InvenTree Part.
 
@@ -50,3 +50,18 @@ The report now includes:
 
 - **Print / Save PDF** — opens a clean browser print view; use the browser's Save as PDF option
 - **Download CSV** — downloads all four report sections in one CSV file
+
+
+## v0.1.2 changes
+
+The Current Stock Snapshot now shows both count and percentage.
+
+Rework detection now treats all of the following as evidence that a stock item has been reworked:
+
+1. The stock item is currently in the configured custom `Rework` status
+2. Historical Stock Tracking records a Rework status
+3. The stock item has a recorded `Rework` test result
+
+These sources are unioned by Stock Item ID, so a board is counted only once.
+
+The frontend asset filename was also changed in v0.1.2 to force InvenTree / browser static-file refresh so the Print / Save PDF and Download CSV controls are loaded reliably after upgrading.
