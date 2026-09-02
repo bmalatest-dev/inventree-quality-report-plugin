@@ -28,3 +28,17 @@ Add one zero-duration result and one result with a missing timestamp. Both must 
 ## Snapshot
 
 Place dummy stock items into Pass VI, Pass BU, Pass SW, Failed VI, Failed BU, Failed SW and Rework. Confirm current counts match exactly.
+
+
+## v0.1.1 custom status test
+
+Assign arbitrary custom numeric keys to statuses such as `PASS_VI`, `PASS_BU`, or `REWORK`.
+The report must classify by configured status name / label, not by numeric key.
+
+## v0.1.1 export test
+
+After loading the Quality Report:
+
+1. Click **Print / Save PDF** and verify all four sections appear.
+2. Save as PDF using the browser print dialog.
+3. Click **Download CSV** and verify snapshot, FPY, timing, and rework sections are present.

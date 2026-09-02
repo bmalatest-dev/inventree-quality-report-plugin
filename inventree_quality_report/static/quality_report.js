@@ -9,6 +9,7 @@ function el(tag, options = {}, children = []) {
 
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 function fmtPercent(value) { return value == null ? "—" : `${Number(value).toFixed(1)}%`; }
+
 function fmtDuration(seconds) {
   if (seconds == null) return "—";
   const n = Math.round(Number(seconds));
@@ -84,36 +85,179 @@ function renderReport(container, report) {
   container.appendChild(rework);
 }
 
+function csvEscape(value) {
+  const text = value == null ? "" : String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function downloadCsv(report) {
+  const lines = [];
+  const addRow = (...values) => lines.push(values.map(csvEscape).join(","));
+
+  addRow("Part Quality Report");
+  addRow("Part", report.part?.name || "");
+  addRow("IPN", report.part?.ipn || "");
+  addRow("Part ID", report.part?.pk ?? "");
+  addRow("Stock Items Evaluated", report.stock_item_count ?? 0);
+  addRow("");
+
+  addRow("CURRENT STOCK SNAPSHOT");
+  addRow("Current Status", "Count");
+  for (const row of report.snapshot?.rows || []) addRow(row.status, row.count);
+  addRow("Total", report.snapshot?.total ?? 0);
+  addRow("");
+
+  addRow("FIRST PASS YIELD");
+  addRow("FPY Test", "First Pass #", "Tested #", "FPY %");
+  for (const row of report.fpy || []) {
+    addRow(row.test, row.first_pass, row.tested, row.percentage == null ? "" : Number(row.percentage).toFixed(1));
+  }
+  addRow("");
+
+  addRow("TEST DURATION");
+  addRow("Test", "Timed Results", "Excluded", "Average Seconds", "Min Seconds", "Max Seconds");
+  for (const row of report.timing || []) {
+    addRow(row.test, row.timed_results, row.excluded, row.average_seconds ?? "", row.min_seconds ?? "", row.max_seconds ?? "");
+  }
+  addRow("");
+
+  const rw = report.rework || {};
+  addRow("REWORK RATE");
+  addRow("Rework Metric", "Count", "Percent");
+  addRow("Stock Tracking Only", rw.tracking_only ?? 0, "");
+  addRow("Rework Test Only", rw.test_only ?? 0, "");
+  addRow("Found in Both", rw.both ?? 0, "");
+  addRow("Unique Stock Items Reworked", rw.unique_reworked ?? 0, rw.rate_percentage == null ? "" : Number(rw.rate_percentage).toFixed(1));
+  addRow("Total Stock Items", rw.stock_items_evaluated ?? 0, rw.stock_items_evaluated ? "100.0" : "");
+
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const base = (report.part?.ipn || report.part?.name || `part-${report.part?.pk || ""}`).replace(/[^a-z0-9_-]+/gi, "_");
+  a.href = url;
+  a.download = `${base}-quality-report.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function printReport(report, reportBox) {
+  const popup = window.open("", "_blank");
+  if (!popup) {
+    window.alert("The print window was blocked by the browser. Allow pop-ups and try again.");
+    return;
+  }
+
+  const partTitle = report.part?.ipn
+    ? `${report.part.name} (${report.part.ipn})`
+    : (report.part?.name || "Part");
+
+  popup.document.open();
+  popup.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Part Quality Report - ${partTitle.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 28px; color: #111; }
+          h1 { margin: 0 0 4px; font-size: 22px; }
+          .meta { margin-bottom: 18px; color: #555; font-size: 12px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; }
+          th:first-child, td:first-child { text-align: left !important; }
+          th:not(:first-child), td:not(:first-child) { text-align: right !important; }
+          @media print { body { margin: 12mm; } }
+        </style>
+      </head>
+      <body>
+        <h1>Part Quality Report</h1>
+        <div class="meta">
+          ${partTitle.replaceAll("<", "&lt;").replaceAll(">", "&gt;")} •
+          Part ID ${report.part?.pk ?? ""} •
+          ${report.stock_item_count ?? 0} stock item(s) evaluated
+        </div>
+        ${reportBox.innerHTML}
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  setTimeout(() => popup.print(), 250);
+}
+
 export function renderQualityReportPanel(target, data) {
   clear(target);
+
   const api = data?.api;
   const partId = Number(data?.context?.part_id ?? data?.id);
   const partName = data?.context?.part_name || data?.instance?.name || `Part ${partId}`;
   const partIpn = data?.context?.part_ipn || data?.instance?.IPN || "";
+
   if (!api || !partId) {
     target.appendChild(el("div", { text: "Quality Report could not determine the current Part or API context." }));
     return;
   }
 
+  let currentReport = null;
+
   const root = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px", maxWidth: "1100px" } });
   const header = el("div", { style: { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", flexWrap: "wrap" } });
+
   const tw = el("div");
   tw.appendChild(el("div", { text: partIpn ? `${partName} (${partIpn})` : partName, style: { fontWeight: "700", fontSize: "1.05rem" } }));
   tw.appendChild(el("div", { text: `Part ID ${partId} • report calculated on demand`, style: { opacity: "0.7", fontSize: "0.85rem" } }));
+
+  const buttons = el("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } });
   const refresh = el("button", { type: "button", text: "Refresh Report", style: { padding: "7px 12px", cursor: "pointer", borderRadius: "5px", border: "1px solid #868e96" } });
-  header.appendChild(tw); header.appendChild(refresh); root.appendChild(header);
-  const status = el("div", { style: { minHeight: "20px", fontSize: "0.9rem" } }); root.appendChild(status);
-  const reportBox = el("div"); root.appendChild(reportBox); target.appendChild(root);
+  const print = el("button", { type: "button", text: "Print / Save PDF", style: { padding: "7px 12px", cursor: "pointer", borderRadius: "5px", border: "1px solid #868e96" } });
+  const csv = el("button", { type: "button", text: "Download CSV", style: { padding: "7px 12px", cursor: "pointer", borderRadius: "5px", border: "1px solid #868e96" } });
+
+  print.disabled = true;
+  csv.disabled = true;
+
+  buttons.appendChild(refresh);
+  buttons.appendChild(print);
+  buttons.appendChild(csv);
+  header.appendChild(tw);
+  header.appendChild(buttons);
+  root.appendChild(header);
+
+  const status = el("div", { style: { minHeight: "20px", fontSize: "0.9rem" } });
+  root.appendChild(status);
+
+  const reportBox = el("div");
+  root.appendChild(reportBox);
+  target.appendChild(root);
 
   async function run() {
-    refresh.disabled = true; status.textContent = "Calculating quality report..."; status.style.color = ""; clear(reportBox);
+    refresh.disabled = true;
+    print.disabled = true;
+    csv.disabled = true;
+    status.textContent = "Calculating quality report...";
+    status.style.color = "";
+    clear(reportBox);
+
     try {
       const report = await loadReport(api, partId);
+      currentReport = report;
       renderReport(reportBox, report);
+      print.disabled = false;
+      csv.disabled = false;
       status.textContent = `Report ready. ${report.stock_item_count ?? 0} stock item(s) evaluated.`;
     } catch (error) {
-      status.textContent = `Quality report failed: ${errText(error)}`; status.style.color = "#e03131";
-    } finally { refresh.disabled = false; }
+      currentReport = null;
+      status.textContent = `Quality report failed: ${errText(error)}`;
+      status.style.color = "#e03131";
+    } finally {
+      refresh.disabled = false;
+    }
   }
-  refresh.addEventListener("click", run); run();
+
+  refresh.addEventListener("click", run);
+  print.addEventListener("click", () => currentReport && printReport(currentReport, reportBox));
+  csv.addEventListener("click", () => currentReport && downloadCsv(currentReport));
+
+  run();
 }
