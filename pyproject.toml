@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventree-quality-report"
+version = "0.1.0"
+description = "Lightweight InvenTree Part Quality Report plugin for stock status, FPY, test timing, and rework metrics."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Per Vices Corporation"}]
+keywords = ["inventree", "quality", "FPY", "manufacturing", "test", "rework"]
+
+[project.entry-points."inventree_plugins"]
+QualityReportPlugin = "inventree_quality_report.plugin:QualityReportPlugin"
+
+[tool.setuptools]
+packages = ["inventree_quality_report"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+inventree_quality_report = ["static/*.js"]
