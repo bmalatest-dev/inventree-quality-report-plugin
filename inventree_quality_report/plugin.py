@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
+from statistics import median
 from typing import Any
 
 from django.core.exceptions import ValidationError
-
 from InvenTree.helpers import generateTestKey
 from part.models import Part
 from plugin import InvenTreePlugin
@@ -26,7 +26,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.2"
+    VERSION = "0.1.3"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -43,7 +43,6 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         ("other", "Other"),
     )
 
-    # Match configured status names / labels, never numeric custom keys.
     STATUS_ALIASES = {
         "passvi": "pass_vi",
         "passedvi": "pass_vi",
@@ -78,7 +77,9 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "title": "Quality Report",
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
-            "source": self.plugin_static_file("quality_report_v012.js:renderQualityReportPanel"),
+            "source": self.plugin_static_file(
+                "quality_report_v013.js:renderQualityReportPanel"
+            ),
             "context": {
                 "part_id": part.pk,
                 "part_name": part.name,
@@ -89,7 +90,9 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
 
     def perform_action(self, user=None, data=None):
         data = data or {}
-        self._last_result = self._build_report(self._parse_part_pk(data.get("part")))
+        self._last_result = self._build_report(
+            self._parse_part_pk(data.get("part"))
+        )
 
     def get_info(self, user=None, data=None):
         return {
@@ -109,16 +112,24 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         try:
             pk = int(value)
         except (TypeError, ValueError) as exc:
-            raise ValidationError({"part": "Must be a numeric Part primary key."}) from exc
+            raise ValidationError(
+                {"part": "Must be a numeric Part primary key."}
+            ) from exc
+
         if pk <= 0:
-            raise ValidationError({"part": "Must be a positive Part primary key."})
+            raise ValidationError(
+                {"part": "Must be a positive Part primary key."}
+            )
         return pk
 
     @staticmethod
     def _normalize(value: Any) -> str:
         if value is None:
             return ""
-        return "".join(ch for ch in str(value).lower() if ch.isalnum())
+        return "".join(
+            ch for ch in str(value).lower()
+            if ch.isalnum()
+        )
 
     @classmethod
     def _status_bucket(cls, *values: Any) -> str:
@@ -130,11 +141,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
 
     @staticmethod
     def _custom_status_maps() -> dict[int, dict[str, Any]]:
-        """Resolve configured custom Stock Statuses dynamically.
-
-        Numeric keys are intentionally not hard-coded because they may differ
-        between test and production instances.
-        """
+        """Resolve configured custom Stock Statuses dynamically."""
         by_key: dict[int, dict[str, Any]] = {}
 
         try:
@@ -178,10 +185,14 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                     "name": custom["name"],
                     "label": custom["label"],
                     "logical_key": custom["logical_key"],
-                    "bucket": cls._status_bucket(custom["name"], custom["label"]),
+                    "bucket": cls._status_bucket(
+                        custom["name"],
+                        custom["label"],
+                    ),
                 }
 
         label = cls._logical_status_label(item.status)
+
         return {
             "custom": False,
             "key": int(item.status),
@@ -195,7 +206,9 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         try:
             part = Part.objects.get(pk=part_pk)
         except Part.DoesNotExist as exc:
-            raise ValidationError({"part": f"Part {part_pk} does not exist."}) from exc
+            raise ValidationError(
+                {"part": f"Part {part_pk} does not exist."}
+            ) from exc
 
         stock_items = list(
             StockItem.objects.filter(part=part)
@@ -209,15 +222,18 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             )
             .order_by("pk")
         )
+
         stock_ids = [item.pk for item in stock_items]
 
         results = list(
-            StockItemTestResult.objects.filter(stock_item_id__in=stock_ids)
+            StockItemTestResult.objects
+            .filter(stock_item_id__in=stock_ids)
             .select_related("template", "stock_item")
         )
 
         tracking = list(
-            StockItemTracking.objects.filter(part=part, item_id__in=stock_ids)
+            StockItemTracking.objects
+            .filter(part=part, item_id__in=stock_ids)
             .only("pk", "item_id", "deltas", "date")
             .order_by("item_id", "date", "pk")
         )
@@ -225,12 +241,24 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         custom_map = self._custom_status_maps()
 
         return {
-            "part": {"pk": part.pk, "name": part.name, "ipn": part.IPN or ""},
+            "part": {
+                "pk": part.pk,
+                "name": part.name,
+                "ipn": part.IPN or "",
+            },
             "stock_item_count": len(stock_items),
-            "snapshot": self._current_snapshot(stock_items, custom_map),
+            "snapshot": self._current_snapshot(
+                stock_items,
+                custom_map,
+            ),
             "fpy": self._first_pass_yield(part, results),
             "timing": self._test_timing(part, results),
-            "rework": self._rework(stock_items, results, tracking, custom_map),
+            "rework": self._rework(
+                stock_items,
+                results,
+                tracking,
+                custom_map,
+            ),
         }
 
     @classmethod
@@ -239,31 +267,55 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         stock_items: list[StockItem],
         custom_map: dict[int, dict[str, Any]],
     ) -> dict[str, Any]:
-        counts = {key: 0 for key, _ in cls.SNAPSHOT_ORDER}
+        counts = {
+            key: 0
+            for key, _ in cls.SNAPSHOT_ORDER
+        }
+
         details = []
 
         for item in stock_items:
-            resolved = cls._resolved_current_status(item, custom_map)
+            resolved = cls._resolved_current_status(
+                item,
+                custom_map,
+            )
             counts[resolved["bucket"]] += 1
+
             details.append({
                 "stock_item": item.pk,
                 "serial": item.serial or "",
                 "status": resolved["label"],
                 "status_name": resolved["name"],
-                "status_custom_key": getattr(item, "status_custom_key", None),
+                "status_custom_key": getattr(
+                    item,
+                    "status_custom_key",
+                    None,
+                ),
                 "logical_status": item.status,
                 "bucket": resolved["bucket"],
             })
 
         rows = [
-            {"key": key, "status": label, "count": counts[key]}
+            {
+                "key": key,
+                "status": label,
+                "count": counts[key],
+            }
             for key, label in cls.SNAPSHOT_ORDER
         ]
 
-        return {"rows": rows, "total": len(stock_items), "details": details}
+        return {
+            "rows": rows,
+            "total": len(stock_items),
+            "details": details,
+        }
 
     @classmethod
-    def _test_catalog(cls, part: Part, results: list[StockItemTestResult]):
+    def _test_catalog(
+        cls,
+        part: Part,
+        results: list[StockItemTestResult],
+    ):
         catalog = {}
 
         try:
@@ -283,40 +335,74 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 catalog[result.key] = {
                     "key": result.key,
                     "name": result.test_name,
-                    "enabled": bool(getattr(result.template, "enabled", False)),
+                    "enabled": bool(
+                        getattr(
+                            result.template,
+                            "enabled",
+                            False,
+                        )
+                    ),
                 }
 
         return catalog
 
     @staticmethod
-    def _attempt_sort_key(result: StockItemTestResult):
-        stamp = result.started_datetime or result.finished_datetime or result.date
+    def _attempt_sort_key(
+        result: StockItemTestResult,
+    ):
+        stamp = (
+            result.started_datetime
+            or result.finished_datetime
+            or result.date
+        )
 
         if stamp is None:
-            stamp = datetime.min.replace(tzinfo=timezone.utc)
+            stamp = datetime.min.replace(
+                tzinfo=timezone.utc
+            )
         elif stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=timezone.utc)
+            stamp = stamp.replace(
+                tzinfo=timezone.utc
+            )
 
         return stamp, result.pk
 
     @classmethod
-    def _first_pass_yield(cls, part: Part, results: list[StockItemTestResult]):
-        catalog = cls._test_catalog(part, results)
-        grouped = defaultdict(lambda: defaultdict(list))
+    def _first_pass_yield(
+        cls,
+        part: Part,
+        results: list[StockItemTestResult],
+    ):
+        catalog = cls._test_catalog(
+            part,
+            results,
+        )
+
+        grouped = defaultdict(
+            lambda: defaultdict(list)
+        )
 
         for result in results:
-            grouped[result.key][result.stock_item_id].append(result)
+            grouped[result.key][
+                result.stock_item_id
+            ].append(result)
 
         rows = []
 
         for key, meta in catalog.items():
-            item_attempts = grouped.get(key, {})
+            item_attempts = grouped.get(
+                key,
+                {},
+            )
             tested = len(item_attempts)
             first_pass = 0
             failed_items = []
 
             for stock_id, attempts in item_attempts.items():
-                first = sorted(attempts, key=cls._attempt_sort_key)[0]
+                first = sorted(
+                    attempts,
+                    key=cls._attempt_sort_key,
+                )[0]
 
                 if bool(first.result):
                     first_pass += 1
@@ -329,26 +415,104 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 "enabled": meta["enabled"],
                 "first_pass": first_pass,
                 "tested": tested,
-                "percentage": (first_pass / tested * 100.0) if tested else None,
-                "failed_stock_items": sorted(failed_items),
+                "percentage": (
+                    first_pass / tested * 100.0
+                    if tested
+                    else None
+                ),
+                "failed_stock_items": sorted(
+                    failed_items
+                ),
             })
 
-        rows.sort(key=lambda r: (r["test"].lower(), r["key"]))
+        rows.sort(
+            key=lambda r: (
+                r["test"].lower(),
+                r["key"],
+            )
+        )
         return rows
 
+    @staticmethod
+    def _iso(value):
+        if value is None:
+            return None
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+
     @classmethod
-    def _test_timing(cls, part: Part, results: list[StockItemTestResult]):
-        catalog = cls._test_catalog(part, results)
+    def _timing_result_record(
+        cls,
+        result: StockItemTestResult,
+        seconds: float,
+    ) -> dict[str, Any]:
+        stock_item = getattr(
+            result,
+            "stock_item",
+            None,
+        )
+
+        return {
+            "result_id": result.pk,
+            "stock_item": result.stock_item_id,
+            "serial": (
+                getattr(
+                    stock_item,
+                    "serial",
+                    "",
+                )
+                or ""
+            ),
+            "test": result.test_name,
+            "result": bool(result.result),
+            "date": cls._iso(
+                getattr(result, "date", None)
+            ),
+            "started_datetime": cls._iso(
+                result.started_datetime
+            ),
+            "finished_datetime": cls._iso(
+                result.finished_datetime
+            ),
+            "duration_seconds": seconds,
+        }
+
+    @classmethod
+    def _test_timing(
+        cls,
+        part: Part,
+        results: list[StockItemTestResult],
+    ):
+        """Return test duration statistics.
+
+        Missing, zero and negative durations are excluded. Median is used
+        instead of arithmetic mean so accidental long-running timestamps do
+        not distort the representative test duration. Min / max retain links
+        to every tied underlying test result.
+        """
+        catalog = cls._test_catalog(
+            part,
+            results,
+        )
+
         grouped = defaultdict(list)
 
         for result in results:
-            grouped[result.key].append(result)
+            grouped[result.key].append(
+                result
+            )
 
         rows = []
 
         for key, meta in catalog.items():
-            attempts = grouped.get(key, [])
-            durations = []
+            attempts = grouped.get(
+                key,
+                [],
+            )
+
+            observations = []
             excluded = 0
 
             for result in attempts:
@@ -359,13 +523,51 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                     excluded += 1
                     continue
 
-                seconds = (finish - start).total_seconds()
+                seconds = (
+                    finish - start
+                ).total_seconds()
 
                 if seconds <= 0:
                     excluded += 1
                     continue
 
-                durations.append(seconds)
+                observations.append(
+                    (
+                        seconds,
+                        cls._timing_result_record(
+                            result,
+                            seconds,
+                        ),
+                    )
+                )
+
+            durations = [
+                seconds
+                for seconds, _ in observations
+            ]
+
+            if durations:
+                minimum = min(durations)
+                maximum = max(durations)
+                min_results = [
+                    record
+                    for seconds, record in observations
+                    if seconds == minimum
+                ]
+                max_results = [
+                    record
+                    for seconds, record in observations
+                    if seconds == maximum
+                ]
+                median_seconds = float(
+                    median(durations)
+                )
+            else:
+                minimum = None
+                maximum = None
+                min_results = []
+                max_results = []
+                median_seconds = None
 
             rows.append({
                 "key": key,
@@ -374,14 +576,19 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 "attempts": len(attempts),
                 "timed_results": len(durations),
                 "excluded": excluded,
-                "average_seconds": (
-                    sum(durations) / len(durations) if durations else None
-                ),
-                "min_seconds": min(durations) if durations else None,
-                "max_seconds": max(durations) if durations else None,
+                "median_seconds": median_seconds,
+                "min_seconds": minimum,
+                "max_seconds": maximum,
+                "min_results": min_results,
+                "max_results": max_results,
             })
 
-        rows.sort(key=lambda r: (r["test"].lower(), r["key"]))
+        rows.sort(
+            key=lambda r: (
+                r["test"].lower(),
+                r["key"],
+            )
+        )
         return rows
 
     @classmethod
@@ -402,12 +609,19 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             return False
 
         custom = custom_map.get(key)
+
         if not custom:
             return False
 
         return (
-            cls._normalize(custom["name"]) == "rework"
-            or cls._normalize(custom["label"]) == "rework"
+            cls._normalize(
+                custom["name"]
+            )
+            == "rework"
+            or cls._normalize(
+                custom["label"]
+            )
+            == "rework"
         )
 
     @classmethod
@@ -416,11 +630,6 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         entry: StockItemTracking,
         custom_map: dict[int, dict[str, Any]],
     ) -> bool:
-        """Detect a historical transition into the configured Rework status.
-
-        Tracking payload structures have changed over time, so this checks the
-        common custom-status field names and tolerates old/new wrapper formats.
-        """
         deltas = entry.deltas or {}
 
         if not isinstance(deltas, dict):
@@ -436,27 +645,53 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "stock_status",
         )
 
-        candidates = [deltas[field] for field in candidate_fields if field in deltas]
+        candidates = [
+            deltas[field]
+            for field in candidate_fields
+            if field in deltas
+        ]
 
         def flatten(value):
             if isinstance(value, dict):
                 ordered = []
-                for key in ("new", "to", "value", "after"):
+
+                for key in (
+                    "new",
+                    "to",
+                    "value",
+                    "after",
+                ):
                     if key in value:
-                        ordered.append(value[key])
+                        ordered.append(
+                            value[key]
+                        )
+
                 ordered.extend(
                     v
                     for k, v in value.items()
-                    if k not in {"new", "to", "value", "after"}
+                    if k not in {
+                        "new",
+                        "to",
+                        "value",
+                        "after",
+                    }
                 )
                 return ordered
-            if isinstance(value, (list, tuple, set)):
+
+            if isinstance(
+                value,
+                (list, tuple, set),
+            ):
                 return list(value)
+
             return [value]
 
         for candidate in candidates:
             for value in flatten(candidate):
-                if cls._custom_status_is_rework(value, custom_map):
+                if cls._custom_status_is_rework(
+                    value,
+                    custom_map,
+                ):
                     return True
 
         return False
@@ -469,26 +704,39 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         tracking: list[StockItemTracking],
         custom_map: dict[int, dict[str, Any]],
     ) -> dict[str, Any]:
-        all_ids = {item.pk for item in stock_items}
+        all_ids = {
+            item.pk
+            for item in stock_items
+        }
 
-        # Current custom Rework status is itself definitive evidence of rework.
-        # This also covers cases where historical status tracking was not recorded.
         current_status_ids = set()
+
         for item in stock_items:
-            resolved = cls._resolved_current_status(item, custom_map)
+            resolved = cls._resolved_current_status(
+                item,
+                custom_map,
+            )
             if resolved["bucket"] == "rework":
-                current_status_ids.add(item.pk)
+                current_status_ids.add(
+                    item.pk
+                )
 
         tracking_history_ids = {
             entry.item_id
             for entry in tracking
-            if entry.item_id in all_ids
-            and cls._tracking_indicates_rework(entry, custom_map)
+            if (
+                entry.item_id in all_ids
+                and cls._tracking_indicates_rework(
+                    entry,
+                    custom_map,
+                )
+            )
         }
 
-        # Treat current Rework status and historical Rework status tracking as one
-        # "status evidence" source for the report.
-        status_ids = current_status_ids | tracking_history_ids
+        status_ids = (
+            current_status_ids
+            | tracking_history_ids
+        )
 
         test_ids = {
             result.stock_item_id
@@ -505,16 +753,32 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         return {
             "stock_items_evaluated": total,
             "unique_reworked": len(unique),
-            "rate_percentage": (len(unique) / total * 100.0) if total else None,
+            "rate_percentage": (
+                len(unique) / total * 100.0
+                if total
+                else None
+            ),
             "status_only": len(status_only),
             "test_only": len(test_only),
             "both": len(both),
-            "current_status_detected": len(current_status_ids),
-            "tracking_history_detected": len(tracking_history_ids),
-            "status_detected_total": len(status_ids),
-            "test_detected_total": len(test_ids),
+            "current_status_detected": len(
+                current_status_ids
+            ),
+            "tracking_history_detected": len(
+                tracking_history_ids
+            ),
+            "status_detected_total": len(
+                status_ids
+            ),
+            "test_detected_total": len(
+                test_ids
+            ),
             "stock_items": sorted(unique),
-            "status_only_items": sorted(status_only),
-            "test_only_items": sorted(test_only),
+            "status_only_items": sorted(
+                status_only
+            ),
+            "test_only_items": sorted(
+                test_only
+            ),
             "both_items": sorted(both),
         }

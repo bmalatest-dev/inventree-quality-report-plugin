@@ -1,73 +1,83 @@
-# Local test plan — v0.1.0
+# Local test plan — v0.1.3
 
-Use dummy data in the local instance.
+## Timing median
 
-## FPY cases
+Create five valid timed results for the same test:
 
-- A: VI PASS, BU PASS, SW PASS → all FPY pass.
-- B: VI FAIL, VI PASS, BU PASS, SW PASS → VI FPY fail; BU/SW pass.
-- C: VI PASS, BU FAIL, BU PASS, SW PASS → BU FPY fail.
-
-## Timing
-
-Create three VI results:
 - 5 minutes
 - 10 minutes
 - 15 minutes
-
-Expected average 10m, min 5m, max 15m.
-
-Add one zero-duration result and one result with a missing timestamp. Both must increment Excluded and must not affect average/min/max.
-
-## Rework
-
-- Test-only: record Rework test result, no tracked Rework status → Rework Test Only +1.
-- Tracking-only: set status to Rework then move out, no Rework test → Stock Tracking Only +1.
-- Both: use both signals → Found in Both +1, but Unique Stock Items Reworked only +1.
-
-## Snapshot
-
-Place dummy stock items into Pass VI, Pass BU, Pass SW, Failed VI, Failed BU, Failed SW and Rework. Confirm current counts match exactly.
-
-
-## v0.1.1 custom status test
-
-Assign arbitrary custom numeric keys to statuses such as `PASS_VI`, `PASS_BU`, or `REWORK`.
-The report must classify by configured status name / label, not by numeric key.
-
-## v0.1.1 export test
-
-After loading the Quality Report:
-
-1. Click **Print / Save PDF** and verify all four sections appear.
-2. Save as PDF using the browser print dialog.
-3. Click **Download CSV** and verify snapshot, FPY, timing, and rework sections are present.
-
-
-## v0.1.2 Rework union test
-
-Create two different stock items:
-
-- Item A: currently in custom status `Rework`, with no Rework test
-- Item B: has a Rework test result, but is not currently in Rework status
+- 20 minutes
+- 120 minutes
 
 Expected:
 
-```text
-Status / Tracking Only: 1
-Rework Test Only:       1
-Found in Both:          0
-Unique Reworked:        2
-```
+- Median = 15 minutes
+- Min = 5 minutes
+- Max = 120 minutes
 
-If there are 5 total stock items, expected Rework Rate is 40.0%.
+This specifically confirms that the long 120-minute result does not distort the representative duration as an arithmetic average would.
 
-## v0.1.2 Snapshot percentage test
+## Even-number median
 
-With 5 total stock items and one currently in Pass VI:
+Create four valid results:
 
-```text
-Pass VI  1  20.0%
-```
+- 5 minutes
+- 10 minutes
+- 20 minutes
+- 30 minutes
 
-The Total row must show 100.0%.
+Expected median = 15 minutes.
+
+## Exclusion
+
+Add:
+- one zero-duration result
+- one negative-duration result
+- one missing-start result
+- one missing-finish result
+
+All must increment Excluded and must not affect Median / Min / Max.
+
+## Min / Max record selection
+
+Select Min.
+
+Expected:
+- exact Stock Item ID
+- serial when populated
+- Test Result ID
+- duration
+- started timestamp
+- finished timestamp
+
+Select Min again and confirm details collapse.
+
+Repeat for Max.
+
+## Ties
+
+Create two results with the same minimum duration and two with the same maximum duration.
+
+Expected:
+- selecting Min shows both minimum records
+- selecting Max shows both maximum records
+
+## CSV
+
+Download CSV.
+
+Expected:
+- timing header uses `Median Seconds`, not Average
+- Min Result IDs are included
+- Max Result IDs are included
+- detailed Min / Max record section is included
+
+## Regression
+
+Confirm:
+- Current Stock Snapshot unchanged
+- FPY unchanged
+- Rework unchanged
+- Print / Save PDF still works
+- Download CSV still works

@@ -1,6 +1,6 @@
 # InvenTree Part Quality Report
 
-Version **0.1.2**
+Version **0.1.3**
 
 A lightweight on-demand quality report for a single InvenTree Part.
 
@@ -8,60 +8,24 @@ A lightweight on-demand quality report for a single InvenTree Part.
 
 1. **Current Stock Snapshot** — Pass VI, Pass BU, Pass SW, Failed VI, Failed BU, Failed SW, Rework, Other.
 2. **First Pass Yield (FPY)** — first recorded attempt per stock item / test determines FPY. Later passes do not repair FPY.
-3. **Test Duration** — count, excluded count, average, minimum and maximum from `finished_datetime - started_datetime`. Missing, zero, and negative durations are excluded. Retests count as timing observations.
-4. **Rework Rate** — hybrid detection: historical transition into Rework status OR a Rework test result. If both exist, the stock item counts once.
+3. **Test Duration** — timed-result count, excluded count, median, minimum and maximum from `finished_datetime - started_datetime`. Missing, zero and negative durations are excluded. Retests count as timing observations.
+4. **Rework Rate** — hybrid detection from current / historical Rework status and Rework test results.
 
-## Design
+## v0.1.3 changes
 
-- Part-page UI panel named **Quality Report**
-- Calculated on demand
-- Exact selected Part only; variants are not included automatically
-- Counts StockItem records rather than stock quantity
-- No database tables, migrations, scheduler, background worker, polling, or analytics database
+- Replaces arithmetic average test duration with **median**.
+- Minimum and maximum duration values can be selected in the report.
+- Selecting Min or Max shows the exact underlying Test Result ID(s), Stock Item / serial, start time, finish time and duration.
+- All tied min / max records are shown.
+- CSV export includes median duration plus the min / max Test Result IDs and a detailed min / max record section.
+- Uses a new frontend asset filename (`quality_report_v013.js`) to force a fresh UI load after upgrade.
 
-## API action
+## Existing behavior retained
 
-`POST /api/action/`
-
-```json
-{
-  "action": "part_quality_report",
-  "data": {"part": 1}
-}
-```
-
-## Current assumptions
-
-- Primarily intended for serialized / trackable PCBAs.
-- Custom stock status labels are normalized so names such as `PASS_VI` and `Pass VI` map to the same bucket.
-- Rework test detection expects a test template whose normalized key is `rework`.
-
-
-## v0.1.1 custom status handling
-
-Custom status numeric keys are not hard-coded. For each Stock Item the plugin reads
-`status_custom_key`, resolves it against `StockStatus.custom_queryset()`, and uses
-the configured custom status `name` and `label`. This allows local and production
-instances to use different numeric custom status keys.
-
-## Export
-
-The report now includes:
-
-- **Print / Save PDF** — opens a clean browser print view; use the browser's Save as PDF option
-- **Download CSV** — downloads all four report sections in one CSV file
-
-
-## v0.1.2 changes
-
-The Current Stock Snapshot now shows both count and percentage.
-
-Rework detection now treats all of the following as evidence that a stock item has been reworked:
-
-1. The stock item is currently in the configured custom `Rework` status
-2. Historical Stock Tracking records a Rework status
-3. The stock item has a recorded `Rework` test result
-
-These sources are unioned by Stock Item ID, so a board is counted only once.
-
-The frontend asset filename was also changed in v0.1.2 to force InvenTree / browser static-file refresh so the Print / Save PDF and Download CSV controls are loaded reliably after upgrading.
+- Current Stock Snapshot count and percentage
+- First Pass Yield based on first recorded attempt
+- Missing / zero / negative duration exclusion
+- Dynamic custom stock-status resolution
+- Hybrid rework detection
+- Print / Save PDF
+- Download CSV
