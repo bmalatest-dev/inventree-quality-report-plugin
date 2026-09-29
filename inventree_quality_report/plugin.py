@@ -26,7 +26,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.6"
+    VERSION = "0.1.7"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +78,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v016.js:renderQualityReportPanel"
+                "quality_report_v017.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
@@ -497,12 +497,13 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         results: list[StockItemTestResult],
         stock_items: list[StockItem],
     ):
-        """Return test duration statistics.
+        """Return effective test time-per-unit statistics.
 
-        Missing, zero and negative durations are excluded. Median is used
-        instead of arithmetic mean so accidental long-running timestamps do
-        not distort the representative test duration. Min / max retain links
-        to every tied underlying test result.
+        Each test result is assumed to cover the entire current quantity of
+        its stock item. Effective seconds per unit = run duration / lot
+        quantity. Missing, zero / negative durations, and zero-quantity lots
+        are excluded. Median / min / max are calculated across the effective
+        per-unit values for valid test runs.
         """
         catalog = cls._test_catalog(
             part,
@@ -556,36 +557,52 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                     excluded += 1
                     continue
 
+                lot_quantity = quantity_by_stock.get(
+                    result.stock_item_id,
+                    0.0,
+                )
+                if lot_quantity <= 0:
+                    excluded += 1
+                    continue
+
+                effective_seconds_per_unit = (
+                    seconds / lot_quantity
+                )
+                record = cls._timing_result_record(
+                    result,
+                    seconds,
+                )
+                record["lot_quantity"] = lot_quantity
+                record["effective_seconds_per_unit"] = (
+                    effective_seconds_per_unit
+                )
                 observations.append(
                     (
-                        seconds,
-                        cls._timing_result_record(
-                            result,
-                            seconds,
-                        ),
+                        effective_seconds_per_unit,
+                        record,
                     )
                 )
 
-            durations = [
-                seconds
-                for seconds, _ in observations
+            effective_durations = [
+                seconds_per_unit
+                for seconds_per_unit, _ in observations
             ]
 
-            if durations:
-                minimum = min(durations)
-                maximum = max(durations)
+            if effective_durations:
+                minimum = min(effective_durations)
+                maximum = max(effective_durations)
                 min_results = [
                     record
-                    for seconds, record in observations
-                    if seconds == minimum
+                    for seconds_per_unit, record in observations
+                    if seconds_per_unit == minimum
                 ]
                 max_results = [
                     record
-                    for seconds, record in observations
-                    if seconds == maximum
+                    for seconds_per_unit, record in observations
+                    if seconds_per_unit == maximum
                 ]
                 median_seconds = float(
-                    median(durations)
+                    median(effective_durations)
                 )
             else:
                 minimum = None
@@ -600,7 +617,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 "enabled": meta["enabled"],
                 "attempts": len(attempts),
                 "tested_quantity": tested_quantity,
-                "timed_results": len(durations),
+                "timed_results": len(effective_durations),
                 "excluded": excluded,
                 "median_seconds": median_seconds,
                 "min_seconds": minimum,

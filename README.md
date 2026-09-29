@@ -44,3 +44,8 @@ Test Duration now reports tested quantity separately from test runs. Rework disp
 ## v0.1.6
 
 Fix the on-screen Rework Rate denominator to display Total Quantity rather than Total Stock Items.
+
+
+## v0.1.7
+
+Test Duration is expressed as effective time per unit. Each test result is assumed to represent testing the entire current stock-item lot: effective time/unit = run duration / lot quantity. Median, minimum, and maximum are calculated from the effective per-unit values for valid runs.
