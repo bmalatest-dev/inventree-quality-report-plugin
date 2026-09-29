@@ -26,7 +26,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.3"
+    VERSION = "0.1.4"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +78,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v013.js:renderQualityReportPanel"
+                "quality_report_v014.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
@@ -251,7 +251,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 stock_items,
                 custom_map,
             ),
-            "fpy": self._first_pass_yield(part, results),
+            "fpy": self._first_pass_yield(part, results, stock_items),
             "timing": self._test_timing(part, results),
             "rework": self._rework(
                 stock_items,
@@ -279,10 +279,12 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 item,
                 custom_map,
             )
-            counts[resolved["bucket"]] += 1
+            item_quantity = float(item.quantity or 0)
+            counts[resolved["bucket"]] += item_quantity
 
             details.append({
                 "stock_item": item.pk,
+                "quantity": item_quantity,
                 "serial": item.serial or "",
                 "status": resolved["label"],
                 "status_name": resolved["name"],
@@ -306,7 +308,8 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
 
         return {
             "rows": rows,
-            "total": len(stock_items),
+            "total": sum(float(item.quantity or 0) for item in stock_items),
+            "stock_item_count": len(stock_items),
             "details": details,
         }
 
@@ -372,6 +375,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         cls,
         part: Part,
         results: list[StockItemTestResult],
+        stock_items: list[StockItem],
     ):
         catalog = cls._test_catalog(
             part,
@@ -387,6 +391,11 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 result.stock_item_id
             ].append(result)
 
+        quantity_by_stock = {
+            item.pk: float(item.quantity or 0)
+            for item in stock_items
+        }
+
         rows = []
 
         for key, meta in catalog.items():
@@ -394,18 +403,20 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 key,
                 {},
             )
-            tested = len(item_attempts)
-            first_pass = 0
+            tested = 0.0
+            first_pass = 0.0
             failed_items = []
 
             for stock_id, attempts in item_attempts.items():
+                tested_quantity = quantity_by_stock.get(stock_id, 0.0)
+                tested += tested_quantity
                 first = sorted(
                     attempts,
                     key=cls._attempt_sort_key,
                 )[0]
 
                 if bool(first.result):
-                    first_pass += 1
+                    first_pass += tested_quantity
                 else:
                     failed_items.append(stock_id)
 
@@ -748,31 +759,30 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         status_only = status_ids - test_ids
         test_only = test_ids - status_ids
         unique = status_ids | test_ids
-        total = len(all_ids)
+        quantity_by_stock = {
+            item.pk: float(item.quantity or 0)
+            for item in stock_items
+        }
+        qty = lambda ids: sum(quantity_by_stock.get(stock_id, 0.0) for stock_id in ids)
+        total = sum(quantity_by_stock.values())
+        unique_quantity = qty(unique)
 
         return {
-            "stock_items_evaluated": total,
-            "unique_reworked": len(unique),
+            "stock_items_evaluated": len(all_ids),
+            "quantity_evaluated": total,
+            "unique_reworked": unique_quantity,
             "rate_percentage": (
-                len(unique) / total * 100.0
+                unique_quantity / total * 100.0
                 if total
                 else None
             ),
-            "status_only": len(status_only),
-            "test_only": len(test_only),
-            "both": len(both),
-            "current_status_detected": len(
-                current_status_ids
-            ),
-            "tracking_history_detected": len(
-                tracking_history_ids
-            ),
-            "status_detected_total": len(
-                status_ids
-            ),
-            "test_detected_total": len(
-                test_ids
-            ),
+            "status_only": qty(status_only),
+            "test_only": qty(test_only),
+            "both": qty(both),
+            "current_status_detected": qty(current_status_ids),
+            "tracking_history_detected": qty(tracking_history_ids),
+            "status_detected_total": qty(status_ids),
+            "test_detected_total": qty(test_ids),
             "stock_items": sorted(unique),
             "status_only_items": sorted(
                 status_only

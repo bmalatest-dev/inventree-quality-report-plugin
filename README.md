@@ -29,3 +29,8 @@ A lightweight on-demand quality report for a single InvenTree Part.
 - Hybrid rework detection
 - Print / Save PDF
 - Download CSV
+
+
+## v0.1.4
+
+Quality metrics are quantity-weighted: Current Stock Snapshot, First Pass Yield, and Rework Rate use StockItem quantity rather than treating every StockItem as one unit. FPY still uses the first recorded attempt for each stock item.
