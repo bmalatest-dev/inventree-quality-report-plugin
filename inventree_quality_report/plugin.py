@@ -26,7 +26,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.4"
+    VERSION = "0.1.5"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +78,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v014.js:renderQualityReportPanel"
+                "quality_report_v015.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
@@ -252,7 +252,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 custom_map,
             ),
             "fpy": self._first_pass_yield(part, results, stock_items),
-            "timing": self._test_timing(part, results),
+            "timing": self._test_timing(part, results, stock_items),
             "rework": self._rework(
                 stock_items,
                 results,
@@ -495,6 +495,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         cls,
         part: Part,
         results: list[StockItemTestResult],
+        stock_items: list[StockItem],
     ):
         """Return test duration statistics.
 
@@ -515,12 +516,25 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 result
             )
 
+        quantity_by_stock = {
+            item.pk: float(item.quantity or 0)
+            for item in stock_items
+        }
+
         rows = []
 
         for key, meta in catalog.items():
             attempts = grouped.get(
                 key,
                 [],
+            )
+            tested_stock_ids = {
+                result.stock_item_id
+                for result in attempts
+            }
+            tested_quantity = sum(
+                quantity_by_stock.get(stock_id, 0.0)
+                for stock_id in tested_stock_ids
             )
 
             observations = []
@@ -585,6 +599,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 "test": meta["name"],
                 "enabled": meta["enabled"],
                 "attempts": len(attempts),
+                "tested_quantity": tested_quantity,
                 "timed_results": len(durations),
                 "excluded": excluded,
                 "median_seconds": median_seconds,
