@@ -39,3 +39,8 @@ Quality metrics are quantity-weighted: Current Stock Snapshot, First Pass Yield,
 ## v0.1.5
 
 Test Duration now reports tested quantity separately from test runs. Rework display uses quantity for both reworked and total quantities.
+
+
+## v0.1.6
+
+Fix the on-screen Rework Rate denominator to display Total Quantity rather than Total Stock Items.

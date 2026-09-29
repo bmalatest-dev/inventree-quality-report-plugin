@@ -26,7 +26,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.5"
+    VERSION = "0.1.6"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +78,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v015.js:renderQualityReportPanel"
+                "quality_report_v016.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
