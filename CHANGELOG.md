@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 - 2026-10-08
+
+- Fix plugin discovery for the new AppMixin-backed timing model.
+- Defer `TestTimingCapture` model import until after InvenTree has registered the plugin package as a Django application.
+- Retain immutable tested-quantity capture, split-history deduplication, units-processed and total-test-time metrics from v0.1.8/v0.1.9.
+- Add versioned frontend asset `quality_report_v020.js`.
+
 ## 0.1.9
 
 - Removed the top-level dependency on `InvenTree.helpers.generateTestKey`.

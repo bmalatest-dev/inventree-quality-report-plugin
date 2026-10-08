@@ -14,7 +14,6 @@ from plugin.mixins import ActionMixin, AppMixin, UserInterfaceMixin
 from stock.models import StockItem, StockItemTestResult, StockItemTracking
 from stock.status_codes import StockStatus
 
-from .models import TestTimingCapture
 
 
 class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePlugin):
@@ -27,7 +26,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.9"
+    VERSION = "0.2.0"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -79,7 +78,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v019.js:renderQualityReportPanel"
+                "quality_report_v020.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
@@ -515,12 +514,23 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
             grouped[result.key].append(result)
 
         result_ids = [result.pk for result in results]
-        captures = {
-            capture.test_result_id: capture
-            for capture in TestTimingCapture.objects.filter(
-                test_result_id__in=result_ids
-            )
-        }
+
+        # AppMixin registers this package as a Django application after plugin
+        # discovery. Keep the model import out of module scope so discovery can
+        # complete before Django loads the plugin app and its models.
+        try:
+            from .models import TestTimingCapture
+        except (ImportError, RuntimeError):
+            TestTimingCapture = None
+
+        captures = {}
+        if TestTimingCapture is not None:
+            captures = {
+                capture.test_result_id: capture
+                for capture in TestTimingCapture.objects.filter(
+                    test_result_id__in=result_ids
+                )
+            }
 
         rows = []
 

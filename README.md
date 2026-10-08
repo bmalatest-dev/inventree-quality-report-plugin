@@ -1,6 +1,6 @@
 # InvenTree Part Quality Report
 
-Version **0.1.9**
+Version **0.2.0**
 
 A lightweight on-demand quality report for a single InvenTree Part.
 
@@ -51,6 +51,6 @@ Fix the on-screen Rework Rate denominator to display Total Quantity rather than 
 Test Duration is expressed as effective time per unit. Each test result is assumed to represent testing the entire current stock-item lot: effective time/unit = run duration / lot quantity. Median, minimum, and maximum are calculated from the effective per-unit values for valid runs.
 
 
-## v0.1.9 - immutable production timing
+## v0.2.0 - immutable production timing
 
 New test results capture the StockItem quantity at the time the test event is created. Test Duration uses this immutable quantity so later stock splits or quantity changes cannot rewrite historical time/unit. InvenTree test-history rows copied during a split are grouped as the same work event; genuine retests remain separate work events. The report now shows Units Processed and Total Test Time. Legacy results without captured quantity are excluded from production timing. FPY behavior is unchanged.
