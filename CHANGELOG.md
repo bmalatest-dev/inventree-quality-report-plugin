@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+- Removed the plugin-owned `TestTimingCapture` database model and migration.
+- Immutable tested quantity is now stored in core `StockItemTestResult.metadata`.
+- Split-copied test history reuses the original event key and tested quantity.
+- Production deployment no longer requires `manage.py migrate` for this plugin.
+- Retains total test time, units processed, and immutable per-event timing behavior.
+
 ## 0.2.0 - 2026-10-08
 
 - Fix plugin discovery for the new AppMixin-backed timing model.

@@ -10,13 +10,13 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from part.models import Part
 from plugin import InvenTreePlugin
-from plugin.mixins import ActionMixin, AppMixin, UserInterfaceMixin
+from plugin.mixins import ActionMixin, UserInterfaceMixin
 from stock.models import StockItem, StockItemTestResult, StockItemTracking
 from stock.status_codes import StockStatus
 
 
 
-class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePlugin):
+class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
     """Generate an on-demand quality report for a single Part."""
 
     NAME = "Part Quality Report"
@@ -26,7 +26,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.2.0"
+    VERSION = "0.2.1"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +78,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v020.js:renderQualityReportPanel"
+                "quality_report_v021.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
@@ -499,38 +499,20 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
     ):
         """Return immutable production-effort timing statistics.
 
-        v0.1.8 uses the quantity captured when each test work event was
-        recorded. Current StockItem quantity is never used for historical
-        time-per-unit calculations. Test-result rows copied by InvenTree during
-        a stock split share an event_key and are counted once.
+        Tested quantity is persisted in the core StockItemTestResult metadata
+        JSON field under a plugin-specific key. This avoids any plugin-owned
+        database model or migration while preserving the quantity at the time
+        the physical test event was recorded.
 
-        Legacy results which pre-date v0.1.8 have no trustworthy captured
-        quantity and are explicitly excluded from per-unit production timing.
+        Test-result rows copied by InvenTree during a stock split share an
+        event_key and are counted once. Legacy results without captured
+        metadata are explicitly excluded from per-unit production timing.
         """
         catalog = cls._test_catalog(part, results)
         grouped = defaultdict(list)
 
         for result in results:
             grouped[result.key].append(result)
-
-        result_ids = [result.pk for result in results]
-
-        # AppMixin registers this package as a Django application after plugin
-        # discovery. Keep the model import out of module scope so discovery can
-        # complete before Django loads the plugin app and its models.
-        try:
-            from .models import TestTimingCapture
-        except (ImportError, RuntimeError):
-            TestTimingCapture = None
-
-        captures = {}
-        if TestTimingCapture is not None:
-            captures = {
-                capture.test_result_id: capture
-                for capture in TestTimingCapture.objects.filter(
-                    test_result_id__in=result_ids
-                )
-            }
 
         rows = []
 
@@ -544,14 +526,20 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
             total_test_seconds = 0.0
 
             for result in sorted(attempts, key=cls._attempt_sort_key):
-                capture = captures.get(result.pk)
+                metadata = getattr(result, "metadata", None) or {}
+                capture = metadata.get("pervices_quality_report", {})
 
-                if capture is None:
+                if not isinstance(capture, dict):
+                    capture = {}
+
+                event_key = capture.get("event_key")
+                captured_quantity = capture.get("tested_quantity")
+
+                if not event_key or captured_quantity in (None, ""):
                     excluded += 1
                     legacy_excluded += 1
                     continue
 
-                event_key = capture.event_key
                 if event_key in seen_events:
                     # Copied test history after a StockItem split is not new
                     # production effort.
@@ -560,7 +548,12 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
 
                 start = result.started_datetime
                 finish = result.finished_datetime
-                lot_quantity = float(capture.tested_quantity or 0)
+
+                try:
+                    lot_quantity = float(captured_quantity)
+                except (TypeError, ValueError):
+                    excluded += 1
+                    continue
 
                 if not start or not finish or lot_quantity <= 0:
                     excluded += 1
@@ -818,3 +811,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
             ),
             "both_items": sorted(both),
         }
+
+
+# Register test-result capture signal without introducing a plugin Django app.
+from . import signals as _quality_report_signals  # noqa: E402,F401

@@ -1,3 +1,7 @@
+# Important: no migration required
+
+v0.2.1 intentionally has no plugin database model or migration. Do not run `manage.py migrate inventree_quality_report`.
+
 # Local test plan — v0.1.3
 
 ## Timing median
