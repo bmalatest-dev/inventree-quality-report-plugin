@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import hashlib
 from datetime import datetime, timezone
 from statistics import median
 from typing import Any
@@ -26,7 +27,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.2.1"
+    VERSION = "0.2.2"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +79,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v021.js:renderQualityReportPanel"
+                "quality_report_v022.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
@@ -491,25 +492,51 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         }
 
     @classmethod
+    def _legacy_event_key(cls, result: StockItemTestResult) -> str:
+        """Return a stable fingerprint for legacy split-copied test history.
+
+        InvenTree copies historical TestResult rows when stock is split. For
+        pre-v0.2.1 rows there is no captured event metadata, so identical
+        historical rows are grouped by the fields which InvenTree copies.
+        The current quantities of the split descendants are then summed to
+        reconstruct the best available estimate of the original tested lot.
+        """
+        fields = [
+            str(getattr(result, "template_id", "") or ""),
+            str(getattr(result, "key", "") or ""),
+            str(bool(getattr(result, "result", False))),
+            cls._iso(getattr(result, "date", None)) or "",
+            cls._iso(getattr(result, "started_datetime", None)) or "",
+            cls._iso(getattr(result, "finished_datetime", None)) or "",
+            str(getattr(result, "value", "") or ""),
+            str(getattr(result, "notes", "") or ""),
+        ]
+        raw = "\x1f".join(fields).encode("utf-8", errors="replace")
+        return "legacy-" + hashlib.sha256(raw).hexdigest()[:48]
+
+    @classmethod
     def _test_timing(
         cls,
         part: Part,
         results: list[StockItemTestResult],
         stock_items: list[StockItem],
     ):
-        """Return immutable production-effort timing statistics.
+        """Return production-effort timing statistics.
 
-        Tested quantity is persisted in the core StockItemTestResult metadata
-        JSON field under a plugin-specific key. This avoids any plugin-owned
-        database model or migration while preserving the quantity at the time
-        the physical test event was recorded.
-
-        Test-result rows copied by InvenTree during a stock split share an
-        event_key and are counted once. Legacy results without captured
-        metadata are explicitly excluded from per-unit production timing.
+        New results use the immutable tested quantity captured in core
+        StockItemTestResult metadata by v0.2.1+. Legacy results remain usable:
+        split-copied rows are grouped by a stable fingerprint and the current
+        quantities of the descendant StockItems are summed as the best
+        available reconstruction of the original tested lot. Legacy-derived
+        runs are reported separately so users can distinguish reconstructed
+        history from authoritative captured events.
         """
         catalog = cls._test_catalog(part, results)
         grouped = defaultdict(list)
+        quantity_by_stock = {
+            item.pk: float(item.quantity or 0)
+            for item in stock_items
+        }
 
         for result in results:
             grouped[result.key].append(result)
@@ -520,41 +547,59 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             attempts = grouped.get(key, [])
             observations = []
             excluded = 0
-            legacy_excluded = 0
             seen_events = set()
             tested_quantity = 0.0
             total_test_seconds = 0.0
+            captured_runs = 0
+            legacy_runs = 0
+
+            # Pre-group legacy rows. A split-copied historical event has the
+            # same fingerprint on each descendant StockItem. Summing unique
+            # descendant quantities reconstructs the original lot quantity.
+            legacy_groups = defaultdict(list)
+            for result in attempts:
+                metadata = getattr(result, "metadata", None) or {}
+                capture = metadata.get("pervices_quality_report", {})
+                if not isinstance(capture, dict):
+                    capture = {}
+                if not capture.get("event_key") or capture.get("tested_quantity") in (None, ""):
+                    legacy_groups[cls._legacy_event_key(result)].append(result)
+
+            legacy_quantities = {}
+            for event_key, event_results in legacy_groups.items():
+                stock_ids = {r.stock_item_id for r in event_results}
+                legacy_quantities[event_key] = sum(
+                    quantity_by_stock.get(stock_id, 0.0)
+                    for stock_id in stock_ids
+                )
 
             for result in sorted(attempts, key=cls._attempt_sort_key):
                 metadata = getattr(result, "metadata", None) or {}
                 capture = metadata.get("pervices_quality_report", {})
-
                 if not isinstance(capture, dict):
                     capture = {}
 
                 event_key = capture.get("event_key")
                 captured_quantity = capture.get("tested_quantity")
+                is_legacy = not event_key or captured_quantity in (None, "")
 
-                if not event_key or captured_quantity in (None, ""):
-                    excluded += 1
-                    legacy_excluded += 1
-                    continue
+                if is_legacy:
+                    event_key = cls._legacy_event_key(result)
+                    lot_quantity = legacy_quantities.get(event_key, 0.0)
+                else:
+                    try:
+                        lot_quantity = float(captured_quantity)
+                    except (TypeError, ValueError):
+                        excluded += 1
+                        continue
 
                 if event_key in seen_events:
-                    # Copied test history after a StockItem split is not new
-                    # production effort.
+                    # Copied split history is the same physical test event.
                     continue
                 seen_events.add(event_key)
 
                 start = result.started_datetime
                 finish = result.finished_datetime
-
-                try:
-                    lot_quantity = float(captured_quantity)
-                except (TypeError, ValueError):
-                    excluded += 1
-                    continue
-
                 if not start or not finish or lot_quantity <= 0:
                     excluded += 1
                     continue
@@ -569,11 +614,16 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 record["tested_quantity"] = lot_quantity
                 record["lot_quantity"] = lot_quantity
                 record["event_key"] = event_key
+                record["legacy_derived"] = is_legacy
                 record["effective_seconds_per_unit"] = effective_seconds_per_unit
 
                 tested_quantity += lot_quantity
                 total_test_seconds += seconds
                 observations.append((effective_seconds_per_unit, record))
+                if is_legacy:
+                    legacy_runs += 1
+                else:
+                    captured_runs += 1
 
             effective_durations = [
                 seconds_per_unit
@@ -608,8 +658,10 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 "attempts": len(attempts),
                 "tested_quantity": tested_quantity,
                 "timed_results": len(effective_durations),
+                "captured_runs": captured_runs,
+                "legacy_runs": legacy_runs,
                 "excluded": excluded,
-                "legacy_excluded": legacy_excluded,
+                "legacy_excluded": 0,
                 "total_test_seconds": total_test_seconds,
                 "median_seconds": median_seconds,
                 "min_seconds": minimum,

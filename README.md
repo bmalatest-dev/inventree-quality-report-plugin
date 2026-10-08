@@ -1,11 +1,11 @@
 
-## v0.2.1 deployment model
+## v0.2.2 deployment model
 
-v0.2.1 stores immutable tested quantity in the existing InvenTree `StockItemTestResult.metadata` JSON field. It creates no plugin-owned database tables and requires no plugin database migration. Install/update the plugin through the normal InvenTree plugin workflow and restart the server / worker as usual.
+v0.2.2 stores immutable tested quantity in the existing InvenTree `StockItemTestResult.metadata` JSON field. It creates no plugin-owned database tables and requires no plugin database migration. Install/update the plugin through the normal InvenTree plugin workflow and restart the server / worker as usual.
 
 # InvenTree Part Quality Report
 
-Version **0.2.1**
+Version **0.2.2**
 
 A lightweight on-demand quality report for a single InvenTree Part.
 
@@ -56,6 +56,10 @@ Fix the on-screen Rework Rate denominator to display Total Quantity rather than 
 Test Duration is expressed as effective time per unit. Each test result is assumed to represent testing the entire current stock-item lot: effective time/unit = run duration / lot quantity. Median, minimum, and maximum are calculated from the effective per-unit values for valid runs.
 
 
-## v0.2.1 - immutable production timing
+## v0.2.2 - immutable production timing
 
 New test results capture the StockItem quantity at the time the test event is created. Test Duration uses this immutable quantity so later stock splits or quantity changes cannot rewrite historical time/unit. InvenTree test-history rows copied during a split are grouped as the same work event; genuine retests remain separate work events. The report now shows Units Processed and Total Test Time. Legacy results without captured quantity are excluded from production timing. FPY behavior is unchanged.
+
+
+### Legacy timing compatibility (v0.2.2)
+Historical test results without captured quantity metadata remain included. Split-copied legacy rows are grouped as one physical event and their descendant stock quantities are summed to reconstruct the original tested lot where possible. Reports identify Captured Runs and Legacy Runs separately.

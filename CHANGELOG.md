@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 - 2026-10-08
+- Restore timing metrics for historical test results created before immutable quantity capture.
+- Reconstruct legacy split-copied events by fingerprinting copied test history and summing descendant stock quantities.
+- Deduplicate copied legacy history so a stock split does not become an extra test run or extra test time.
+- Report Captured Runs and Legacy Runs separately for transparency.
+- Continue using authoritative immutable metadata for all new v0.2.1+ test events.
+- No plugin database migration required.
+
 ## 0.2.1
 - Removed the plugin-owned `TestTimingCapture` database model and migration.
 - Immutable tested quantity is now stored in core `StockItemTestResult.metadata`.
