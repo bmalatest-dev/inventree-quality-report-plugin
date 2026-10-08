@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.9
+
+- Removed the top-level dependency on `InvenTree.helpers.generateTestKey`.
+- Uses the canonical `rework` test key directly for the Rework test, avoiding plugin discovery/import failures when the InvenTree backend package is not on the plain Python import path.
+- Retains all v0.1.8 immutable tested-quantity and production-effort reporting changes.
+
 ## 0.1.8 - 2026-10-08
 
 - Capture tested quantity immutably when each new StockItem test result is created.

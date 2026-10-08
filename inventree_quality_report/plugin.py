@@ -8,7 +8,6 @@ from statistics import median
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from InvenTree.helpers import generateTestKey
 from part.models import Part
 from plugin import InvenTreePlugin
 from plugin.mixins import ActionMixin, AppMixin, UserInterfaceMixin
@@ -28,7 +27,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.8"
+    VERSION = "0.1.9"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -62,7 +61,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
         "rework": "rework",
     }
 
-    REWORK_TEST_KEYS = {generateTestKey("Rework")}
+    REWORK_TEST_KEYS = {"rework"}
 
     def get_ui_panels(self, request, context, **kwargs):
         context = context or {}
@@ -80,7 +79,7 @@ class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePl
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v018.js:renderQualityReportPanel"
+                "quality_report_v019.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
