@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-quality-report"
-version = "0.1.7"
+version = "0.1.8"
 description = "Lightweight InvenTree Part Quality Report plugin for stock status, FPY, test timing, and rework metrics."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,8 +16,10 @@ keywords = ["inventree", "quality", "FPY", "manufacturing", "test", "rework"]
 QualityReportPlugin = "inventree_quality_report.plugin:QualityReportPlugin"
 
 [tool.setuptools]
-packages = ["inventree_quality_report"]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["inventree_quality_report*"]
 
 [tool.setuptools.package-data]
 inventree_quality_report = ["static/*.js"]

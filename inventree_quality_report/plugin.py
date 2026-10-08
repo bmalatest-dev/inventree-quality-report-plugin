@@ -11,12 +11,14 @@ from django.core.exceptions import ValidationError
 from InvenTree.helpers import generateTestKey
 from part.models import Part
 from plugin import InvenTreePlugin
-from plugin.mixins import ActionMixin, UserInterfaceMixin
+from plugin.mixins import ActionMixin, AppMixin, UserInterfaceMixin
 from stock.models import StockItem, StockItemTestResult, StockItemTracking
 from stock.status_codes import StockStatus
 
+from .models import TestTimingCapture
 
-class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
+
+class QualityReportPlugin(AppMixin, ActionMixin, UserInterfaceMixin, InvenTreePlugin):
     """Generate an on-demand quality report for a single Part."""
 
     NAME = "Part Quality Report"
@@ -26,7 +28,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.1.7"
+    VERSION = "0.1.8"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -78,7 +80,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             "description": "Current stock status, FPY, test timing, and rework.",
             "icon": "ti:chart-bar:outline",
             "source": self.plugin_static_file(
-                "quality_report_v017.js:renderQualityReportPanel"
+                "quality_report_v018.js:renderQualityReportPanel"
             ),
             "context": {
                 "part_id": part.pk,
@@ -497,91 +499,79 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         results: list[StockItemTestResult],
         stock_items: list[StockItem],
     ):
-        """Return effective test time-per-unit statistics.
+        """Return immutable production-effort timing statistics.
 
-        Each test result is assumed to cover the entire current quantity of
-        its stock item. Effective seconds per unit = run duration / lot
-        quantity. Missing, zero / negative durations, and zero-quantity lots
-        are excluded. Median / min / max are calculated across the effective
-        per-unit values for valid test runs.
+        v0.1.8 uses the quantity captured when each test work event was
+        recorded. Current StockItem quantity is never used for historical
+        time-per-unit calculations. Test-result rows copied by InvenTree during
+        a stock split share an event_key and are counted once.
+
+        Legacy results which pre-date v0.1.8 have no trustworthy captured
+        quantity and are explicitly excluded from per-unit production timing.
         """
-        catalog = cls._test_catalog(
-            part,
-            results,
-        )
-
+        catalog = cls._test_catalog(part, results)
         grouped = defaultdict(list)
 
         for result in results:
-            grouped[result.key].append(
-                result
-            )
+            grouped[result.key].append(result)
 
-        quantity_by_stock = {
-            item.pk: float(item.quantity or 0)
-            for item in stock_items
+        result_ids = [result.pk for result in results]
+        captures = {
+            capture.test_result_id: capture
+            for capture in TestTimingCapture.objects.filter(
+                test_result_id__in=result_ids
+            )
         }
 
         rows = []
 
         for key, meta in catalog.items():
-            attempts = grouped.get(
-                key,
-                [],
-            )
-            tested_stock_ids = {
-                result.stock_item_id
-                for result in attempts
-            }
-            tested_quantity = sum(
-                quantity_by_stock.get(stock_id, 0.0)
-                for stock_id in tested_stock_ids
-            )
-
+            attempts = grouped.get(key, [])
             observations = []
             excluded = 0
+            legacy_excluded = 0
+            seen_events = set()
+            tested_quantity = 0.0
+            total_test_seconds = 0.0
 
-            for result in attempts:
+            for result in sorted(attempts, key=cls._attempt_sort_key):
+                capture = captures.get(result.pk)
+
+                if capture is None:
+                    excluded += 1
+                    legacy_excluded += 1
+                    continue
+
+                event_key = capture.event_key
+                if event_key in seen_events:
+                    # Copied test history after a StockItem split is not new
+                    # production effort.
+                    continue
+                seen_events.add(event_key)
+
                 start = result.started_datetime
                 finish = result.finished_datetime
+                lot_quantity = float(capture.tested_quantity or 0)
 
-                if not start or not finish:
+                if not start or not finish or lot_quantity <= 0:
                     excluded += 1
                     continue
 
-                seconds = (
-                    finish - start
-                ).total_seconds()
-
+                seconds = (finish - start).total_seconds()
                 if seconds <= 0:
                     excluded += 1
                     continue
 
-                lot_quantity = quantity_by_stock.get(
-                    result.stock_item_id,
-                    0.0,
-                )
-                if lot_quantity <= 0:
-                    excluded += 1
-                    continue
-
-                effective_seconds_per_unit = (
-                    seconds / lot_quantity
-                )
-                record = cls._timing_result_record(
-                    result,
-                    seconds,
-                )
+                effective_seconds_per_unit = seconds / lot_quantity
+                record = cls._timing_result_record(result, seconds)
+                record["tested_quantity"] = lot_quantity
                 record["lot_quantity"] = lot_quantity
-                record["effective_seconds_per_unit"] = (
-                    effective_seconds_per_unit
-                )
-                observations.append(
-                    (
-                        effective_seconds_per_unit,
-                        record,
-                    )
-                )
+                record["event_key"] = event_key
+                record["effective_seconds_per_unit"] = effective_seconds_per_unit
+
+                tested_quantity += lot_quantity
+                total_test_seconds += seconds
+                observations.append((effective_seconds_per_unit, record))
 
             effective_durations = [
                 seconds_per_unit
@@ -601,9 +591,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                     for seconds_per_unit, record in observations
                     if seconds_per_unit == maximum
                 ]
-                median_seconds = float(
-                    median(effective_durations)
-                )
+                median_seconds = float(median(effective_durations))
             else:
                 minimum = None
                 maximum = None
@@ -619,6 +607,8 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 "tested_quantity": tested_quantity,
                 "timed_results": len(effective_durations),
                 "excluded": excluded,
+                "legacy_excluded": legacy_excluded,
+                "total_test_seconds": total_test_seconds,
                 "median_seconds": median_seconds,
                 "min_seconds": minimum,
                 "max_seconds": maximum,
@@ -626,12 +616,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
                 "max_results": max_results,
             })
 
-        rows.sort(
-            key=lambda r: (
-                r["test"].lower(),
-                r["key"],
-            )
-        )
+        rows.sort(key=lambda r: (r["test"].lower(), r["key"]))
         return rows
 
     @classmethod

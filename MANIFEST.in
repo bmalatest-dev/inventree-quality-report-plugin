@@ -3,3 +3,5 @@ include CHANGELOG.md
 include TESTING.md
 include LICENSE
 recursive-include inventree_quality_report/static *.js
+
+recursive-include inventree_quality_report/migrations *.py

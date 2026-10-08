@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.8 - 2026-10-08
+
+- Capture tested quantity immutably when each new StockItem test result is created.
+- Calculate historical time/unit from captured tested quantity, never current StockItem quantity.
+- Deduplicate copied test-history rows created by later StockItem splits so copied history does not become new production effort.
+- Count genuine retests as additional units processed and additional test time.
+- Add Total Test Time to the Test Duration section and CSV export.
+- Explicitly exclude legacy timing records which pre-date quantity capture rather than presenting unreliable time/unit values.
+- Preserve existing FPY behavior.
+
+
 ## 0.1.3 - 2026-09-04
 
 - Replace average test duration with median
