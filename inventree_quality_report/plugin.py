@@ -12,8 +12,10 @@ from django.core.exceptions import ValidationError
 from part.models import Part
 from plugin import InvenTreePlugin
 from plugin.mixins import ActionMixin, UserInterfaceMixin
-from stock.models import StockItem, StockItemTestResult, StockItemTracking
+from stock.models import StockItem, StockItemTestResult
 from stock.status_codes import StockStatus
+
+from .tracking import TrackingRecord, load_tracking
 
 
 
@@ -27,7 +29,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.2.2"
+    VERSION = "0.2.3"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -232,12 +234,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
             .select_related("template", "stock_item")
         )
 
-        tracking = list(
-            StockItemTracking.objects
-            .filter(part=part, item_id__in=stock_ids)
-            .only("pk", "item_id", "deltas", "date")
-            .order_by("item_id", "date", "pk")
-        )
+        tracking = load_tracking(part, stock_ids)
 
         custom_map = self._custom_status_maps()
 
@@ -709,7 +706,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
     @classmethod
     def _tracking_indicates_rework(
         cls,
-        entry: StockItemTracking,
+        entry: TrackingRecord,
         custom_map: dict[int, dict[str, Any]],
     ) -> bool:
         deltas = entry.deltas or {}
@@ -783,7 +780,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         cls,
         stock_items: list[StockItem],
         results: list[StockItemTestResult],
-        tracking: list[StockItemTracking],
+        tracking: list[TrackingRecord],
         custom_map: dict[int, dict[str, Any]],
     ) -> dict[str, Any]:
         all_ids = {

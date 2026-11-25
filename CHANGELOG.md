@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3 - 2026-11-25
+- Support centralized stock audit logging in InvenTree 1.8.0 dev while retaining legacy tracking support.
+- Normalize audit field changes and event deltas for historical rework detection.
+- No frontend or database schema changes.
+
 ## 0.2.2 - 2026-10-08
 - Restore timing metrics for historical test results created before immutable quantity capture.
 - Reconstruct legacy split-copied events by fingerprinting copied test history and summing descendant stock quantities.

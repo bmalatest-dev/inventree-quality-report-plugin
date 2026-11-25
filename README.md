@@ -1,11 +1,11 @@
 
-## v0.2.2 deployment model
+## v0.2.3 deployment model
 
-v0.2.2 stores immutable tested quantity in the existing InvenTree `StockItemTestResult.metadata` JSON field. It creates no plugin-owned database tables and requires no plugin database migration. Install/update the plugin through the normal InvenTree plugin workflow and restart the server / worker as usual.
+v0.2.3 stores immutable tested quantity in the existing InvenTree `StockItemTestResult.metadata` JSON field. It creates no plugin-owned database tables and requires no plugin database migration. Install/update the plugin through the normal InvenTree plugin workflow and restart the server / worker as usual.
 
 # InvenTree Part Quality Report
 
-Version **0.2.2**
+Version **0.2.3**
 
 A lightweight on-demand quality report for a single InvenTree Part.
 
@@ -63,3 +63,7 @@ New test results capture the StockItem quantity at the time the test event is cr
 
 ### Legacy timing compatibility (v0.2.2)
 Historical test results without captured quantity metadata remain included. Split-copied legacy rows are grouped as one physical event and their descendant stock quantities are summed to reconstruct the original tested lot where possible. Reports identify Captured Runs and Legacy Runs separately.
+
+## Stock history compatibility (v0.2.3)
+
+Supports legacy StockItemTracking and centralized AuditLogEntry stock history. Both migrated and newly recorded audit status changes are used for historical rework detection.
