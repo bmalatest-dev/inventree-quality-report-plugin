@@ -5,7 +5,7 @@ v0.2.3 stores immutable tested quantity in the existing InvenTree `StockItemTest
 
 # InvenTree Part Quality Report
 
-Version **0.2.3**
+Version **0.2.4**
 
 A lightweight on-demand quality report for a single InvenTree Part.
 
@@ -67,3 +67,23 @@ Historical test results without captured quantity metadata remain included. Spli
 ## Stock history compatibility (v0.2.3)
 
 Supports legacy StockItemTracking and centralized AuditLogEntry stock history. Both migrated and newly recorded audit status changes are used for historical rework detection.
+
+## Test Throughput by User (v0.2.4)
+
+Enable **Enable URL integration** in the InvenTree plugin settings and restart
+the InvenTree server after upgrading. InvenTree superusers can open **Test
+Throughput** from the global navigation. The report starts with the last 30
+Toronto calendar dates across all parts and users.
+
+Filter by date, recorded user, part ID/IPN/name, test, or outcome. Expand a user
+to see part totals, then tests and daily activity. Download CSV to export these
+summaries and the underlying runs, including source result IDs. The frontend
+and both backend endpoints use the signed-in user's superuser status.
+
+Work date uses test start, then finish, then recording time. Recorded hours sum
+valid elapsed run durations, which can overlap. Units/hour uses runs with both
+valid duration and positive tested quantity. Select one test to show rates in
+user and part totals. Split copies count once per user, part and test. Captured
+quantities take precedence over legacy estimates from current stock. First
+attempts and retests are classified from stock/test history across users and
+outside the selected date range.

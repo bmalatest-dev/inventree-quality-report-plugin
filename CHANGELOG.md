@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+- Add a global superuser-only test throughput report and CSV export.
+- Summarize recorded test hours and units by user, part, test, and Toronto work date.
+- Requires plugin URL integration. No database migration required.
+
 ## 0.2.3 - 2026-11-25
 - Support centralized stock audit logging in InvenTree 1.8.0 dev while retaining legacy tracking support.
 - Normalize audit field changes and event deltas for historical rework detection.

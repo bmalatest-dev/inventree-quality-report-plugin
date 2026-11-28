@@ -9,17 +9,19 @@ from statistics import median
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.urls import path
 from part.models import Part
 from plugin import InvenTreePlugin
-from plugin.mixins import ActionMixin, UserInterfaceMixin
+from plugin.mixins import ActionMixin, UrlsMixin, UserInterfaceMixin
 from stock.models import StockItem, StockItemTestResult
 from stock.status_codes import StockStatus
 
+from .throughput import can_view_throughput, throughput_view
 from .tracking import TrackingRecord, load_tracking
 
 
 
-class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
+class QualityReportPlugin(ActionMixin, UrlsMixin, UserInterfaceMixin, InvenTreePlugin):
     """Generate an on-demand quality report for a single Part."""
 
     NAME = "Part Quality Report"
@@ -29,7 +31,7 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
         "On-demand Part quality report for current stock status, first-pass yield, "
         "test duration, and historical rework rate."
     )
-    VERSION = "0.2.3"
+    VERSION = "0.2.4"
     AUTHOR = "Per Vices Corporation"
     LICENSE = "MIT"
 
@@ -64,6 +66,41 @@ class QualityReportPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
     }
 
     REWORK_TEST_KEYS = {"rework"}
+
+    def setup_urls(self):
+        return [
+            path(
+                "throughput/data/", throughput_view,
+                {"legacy_event_key": self._legacy_event_key}, name="throughput-data",
+            ),
+            path(
+                "throughput/csv/", throughput_view,
+                {"legacy_event_key": self._legacy_event_key, "download": True},
+                name="throughput-csv",
+            ),
+        ]
+
+    def get_ui_navigation_items(self, request, context, **kwargs):
+        if not can_view_throughput(request.user):
+            return []
+        return [{
+            "key": "test-throughput",
+            "title": "Test Throughput",
+            "icon": "ti:chart-bar:outline",
+            "options": {"url": f"plugin/{self.slug}/throughput"},
+        }]
+
+    def get_ui_routes(self, request, context, **kwargs):
+        if not can_view_throughput(request.user):
+            return []
+        return [{
+            "key": "test-throughput",
+            "title": "Test Throughput by User",
+            "source": self.plugin_static_file(
+                "test_throughput.js:renderTestThroughput"
+            ),
+            "options": {"path": "throughput"},
+        }]
 
     def get_ui_panels(self, request, context, **kwargs):
         context = context or {}
